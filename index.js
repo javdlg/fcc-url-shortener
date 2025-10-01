@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const { MongoClient } = require("mongodb");
+const dns = require("dns").promises; // Para validación async de DNS
+const { URL } = require("url"); // Para parsear la URL
 require("dotenv").config();
 
 const app = express();
@@ -37,17 +39,27 @@ async function run() {
 
     // POST endpoint to shorten URLs
     app.post("/api/shorturl", async (req, res) => {
-      const originalUrl = req.body.url;
+      let originalUrl = req.body.url;
 
-      // Validate URL format
-      const urlRegex = /^https?:\/\/([\w-]+\.)+[\w-]+(\/[\w- ./?%&=]*)?$/;
-      if (!urlRegex.test(originalUrl)) {
+      // Validación básica: debe empezar con http:// o https://
+      if (
+        !originalUrl.startsWith("http://") &&
+        !originalUrl.startsWith("https://")
+      ) {
         return res.json({ error: "invalid url" });
       }
 
       try {
+        // Parsear la URL para extraer hostname
+        const parsedUrl = new URL(originalUrl);
+        const hostname = parsedUrl.hostname;
+
+        // Validar con DNS: verificar si el dominio resuelve
+        await dns.lookup(hostname);
+        // Si llega aquí, la DNS resolvió (dominio válido)
+
         // Check if URL already exists
-        const existingUrl = await urls.findOne({ original_url: originalUrl });
+        let existingUrl = await urls.findOne({ original_url: originalUrl });
         if (existingUrl) {
           return res.json({
             original_url: existingUrl.original_url,
@@ -71,7 +83,8 @@ async function run() {
         });
       } catch (err) {
         console.error("Error in POST /api/shorturl:", err);
-        res.status(500).json({ error: "Server error" });
+        // Si falla DNS o MongoDB, tratar como inválida
+        res.json({ error: "invalid url" });
       }
     });
 
